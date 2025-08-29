@@ -1,0 +1,64 @@
+kind: Pipeline
+apiVersion: tekton.dev/v1beta1
+metadata:
+  name: logging-e2e-test
+spec:
+  params:
+    - description: 'Snapshot of the application'
+      name: SNAPSHOT
+      default: '{"components": [{"name":"test-app", "containerImage": "quay.io/example/repo:latest"}]}'
+      type: string
+    - name: PROW_JOB_NAME
+      description: The name of the prow job to be triggered
+      type: string
+    - name: GANGWAY_API_URL
+      type: string
+      description: The API used to trigger prow jobs
+    - name: GANGWAY_TOKEN
+      type: string
+      description: Token to authenticate with gangway
+  tasks:
+    - name: parse-metadata
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/QiaolingTang/tekton-pipelines
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/get-metadata.yaml
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+    - name: trigger-logging-prow-job
+      description: Task to trigger prow job
+      runAfter:
+        - parse-metadata
+      when:
+        - input: $(tasks.parse-metadata.results.test-event-type)
+          operator: in
+          values: [ "push", "Push", "PUSH" ]
+        - input: $(tasks.parse-metadata.results.component-name)
+          operator: in
+          values: ["loki-operator-bundle-v6-3", "cluster-logging-operator-bundle-v6-3"]
+      params:
+        - name: PROW_JOB_NAME
+          value: "$(params.PROW_JOB_NAME)"
+        - name: GANGWAY_API_URL
+          value: "$(params.GANGWAY_API_URL)"
+        - name: GANGWAY_TOKEN
+          value: "$(params.GANGWAY_TOKEN)"
+        - name: MULTISTAGE_PARAM_OVERRIDE_KEY
+          value: "MULTISTAGE_PARAM_OVERRIDE_LOGGING_BUNDLES"
+        - name: MULTISTAGE_PARAM_OVERRIDE_VALUE
+          value: "$(tasks.parse-metadata.results.bundles)"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/QiaolingTang/tekton-pipelines
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/trigger-prow-job.yaml

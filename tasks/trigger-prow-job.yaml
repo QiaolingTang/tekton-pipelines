@@ -12,7 +12,6 @@ spec:
       description: The API used to trigger prow jobs
     - name: GANGWAY_TOKEN
       type: string
-      default: gangway-token
       description: Token to authenticate with gangway
     - name: MULTISTAGE_PARAM_OVERRIDE_KEY
       type: string
