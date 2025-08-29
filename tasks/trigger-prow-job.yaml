@@ -1,0 +1,110 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trigger-prow-job
+spec:
+  params:
+    - name: PROW_JOB_NAME
+      description: The name of the prow job to be triggered
+      type: string
+    - name: GANGWAY_API_URL
+      type: string
+      description: The API used to trigger prow jobs
+    - name: GANGWAY_TOKEN
+      type: string
+      default: gangway-token
+      description: Token to authenticate with gangway
+    - name: MULTISTAGE_PARAM_OVERRIDE_KEY
+      type: string
+      description: The key name for the multistage parameter override (e.g., MULTISTAGE_PARAM_OVERRIDE_LOGGING_INDEX_IMAGE, MULTISTAGE_PARAM_OVERRIDE_LOGGING_BUNDLES)
+    - name: MULTISTAGE_PARAM_OVERRIDE_VALUE
+      type: string
+      description: The value of the multistage parameter override
+  results:
+    - name: PROW_JOB_URL
+      description: The log link of the prow job
+  steps:
+    - name: trigger-prow-job
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      env:
+        - name: GANGWAY_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.GANGWAY_TOKEN)
+              key: token
+      script: |
+        echo "Install dependencies"
+        dnf -y install jq --quiet > /dev/null
+
+        echo "Trigger the Prow job"
+
+        # Create the JSON payload dynamically with the configurable key
+        JSON_PAYLOAD=$(jq -n \
+          --arg key "$(params.MULTISTAGE_PARAM_OVERRIDE_KEY)" \
+          --arg value "$(params.MULTISTAGE_PARAM_OVERRIDE_VALUE)" \
+          '{
+            "job_execution_type": "1",
+            "pod_spec_options": {
+              "envs": {
+                ($key): $value
+              }
+            }
+          }')
+
+        # JSON_PAYLOAD='{"job_execution_type": "1"}'
+
+        #echo "JSON payload:"
+        #echo "${JSON_PAYLOAD}"
+
+        echo "$(params.PROW_JOB_NAME)"
+        echo "$(params.GANGWAY_API_URL)"
+
+        RESPONSE=$(curl -X POST -d "${JSON_PAYLOAD}" -H "Content-Type: application/json" -H "Authorization: Bearer ${GANGWAY_API_TOKEN}" "$(params.GANGWAY_API_URL)/v1/executions/$(params.PROW_JOB_NAME)")
+
+        echo "Job trigger response:"
+        echo "${RESPONSE}"
+
+        # Extract job ID from the response
+        JOB_ID=$(echo "${RESPONSE}" | jq -r '.id')
+        echo "Job ID: ${JOB_ID}"
+
+        if [ "${JOB_ID}" != "null" ] && [ -n "${JOB_ID}" ]; then
+          echo "Fetching job details for ID: ${JOB_ID}"
+
+          # Poll job details until job_url is available
+          MAX_ATTEMPTS=60  # Maximum number of attempts (5 minutes with 5-second intervals)
+          ATTEMPT=0
+          JOB_URL=""
+
+          while [ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]; do
+            echo "Attempt $((ATTEMPT + 1))/${MAX_ATTEMPTS}: Fetching job details..."
+
+            JOB_DETAILS=$(curl -s -X GET -H "Authorization: Bearer ${GANGWAY_API_TOKEN}" "$(params.GANGWAY_API_URL)/v1/executions/${JOB_ID}")
+            echo "Job details response:"
+            echo "${JOB_DETAILS}"
+
+            # Extract job_url from the response
+            JOB_URL=$(echo "${JOB_DETAILS}" | jq -r '.job_url')
+
+            if [ "${JOB_URL}" != "null" ] && [ -n "${JOB_URL}" ] && [ "${JOB_URL}" != "" ]; then
+              echo "Job URL found: ${JOB_URL}"
+              break
+            else
+              echo "Job URL not yet available, waiting 5 seconds..."
+              sleep 5
+              ATTEMPT=$((ATTEMPT + 1))
+            fi
+          done
+
+          if [ "${JOB_URL}" = "null" ] || [ -z "${JOB_URL}" ] || [ "${JOB_URL}" = "" ]; then
+            echo "Job URL not available after ${MAX_ATTEMPTS} attempts"
+            exit 1
+          else
+            echo "Final job details with URL:"
+            echo "${JOB_DETAILS}"
+            echo "$JOB_URL" | tee "$(results.PROW_JOB_URL.path)"
+          fi
+        else
+          echo "Failed to extract job ID from response"
+          exit 1
+        fi
