@@ -73,7 +73,7 @@ spec:
         SOURCE_GIT_URL=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .source.git.url' <<< "${SNAPSHOT}")
         SOURCE_GIT_REVISION=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .source.git.revision' <<< "${SNAPSHOT}")
         COMPONENT_CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
-        BUNDLES=$(jq -r '[.spec.components[] | select(.name | contains("-bundle-")) | .containerImage] | join(",")' <<< "${SNAPSHOT}")
+        BUNDLES=$(jq -r '[.components[] | select(.name | contains("-bundle-")) | .containerImage] | join(",")' <<< "${SNAPSHOT}")
 
         # Log declared environment variables
         echo "Integration Test metadata:"
