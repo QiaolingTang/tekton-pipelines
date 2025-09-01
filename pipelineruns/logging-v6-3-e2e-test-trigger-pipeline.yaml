@@ -1,0 +1,71 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  annotations:
+    build.appstudio.openshift.io/repo: https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage/-/tree/4a1cf678754592e0593b8c6914032b6435fa7c5b
+    build.appstudio.redhat.com/commit_sha: 4a1cf678754592e0593b8c6914032b6435fa7c5b
+    build.appstudio.redhat.com/target_branch: release-6.0
+    pac.test.appstudio.openshift.io/branch: release-6.0
+    pac.test.appstudio.openshift.io/cancel-in-progress: "false"
+    pac.test.appstudio.openshift.io/controller-info: '{"name":"default","configmap":"pipelines-as-code","secret":"pipelines-as-code-secret",
+      "gRepo": "pipelines-as-code"}'
+    pac.test.appstudio.openshift.io/event-type: push
+    pac.test.appstudio.openshift.io/git-auth-secret: pac-gitauth-htkthq
+    pac.test.appstudio.openshift.io/git-provider: gitlab
+    pac.test.appstudio.openshift.io/log-url: https://konflux-ui.apps.stone-prod-p02.hjvn.p1.openshiftapps.com/ns/obs-logging-tenant/pipelinerun/loki-operator-bundle-v6-0-on-push-zsnpj
+    pac.test.appstudio.openshift.io/max-keep-runs: "3"
+    pac.test.appstudio.openshift.io/on-cel-expression: event == "push" && target_branch
+      == "release-6.0" && (".cachi2/loki-operator-bundle/***".pathChanged() || ".tekton/loki-operator-bundle-pull-request.yaml".pathChanged()
+      || ".tekton/loki-operator-bundle-push.yaml".pathChanged() || "Dockerfile.loki-operator-bundle".pathChanged()
+      || "loki-operator".pathChanged() || "tools".pathChanged() || "variables.yaml".pathChanged())
+    pac.test.appstudio.openshift.io/original-prname: loki-operator-bundle-v6-0-on-push
+    pac.test.appstudio.openshift.io/repo-url: https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage
+    pac.test.appstudio.openshift.io/repository: logging-loki-v6-2
+    pac.test.appstudio.openshift.io/scm-reporting-plr-started: "true"
+    pac.test.appstudio.openshift.io/sender: vparfono
+    pac.test.appstudio.openshift.io/sha: 4a1cf678754592e0593b8c6914032b6435fa7c5b
+    pac.test.appstudio.openshift.io/sha-title: Enable source image for loki-operator-bundle
+    pac.test.appstudio.openshift.io/sha-url: https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage/-/commit/4a1cf678754592e0593b8c6914032b6435fa7c5b
+    pac.test.appstudio.openshift.io/source-branch: refs/heads/release-6.0
+    pac.test.appstudio.openshift.io/source-project-id: "109325"
+    pac.test.appstudio.openshift.io/source-repo-url: https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage
+    pac.test.appstudio.openshift.io/state: completed
+    pac.test.appstudio.openshift.io/target-project-id: "109325"
+    pac.test.appstudio.openshift.io/url-org: openshift-logging
+    pac.test.appstudio.openshift.io/url-repository: konflux-log-storage
+    test.appstudio.openshift.io/pipelinerunstarttime: "1756221969"
+    test.appstudio.openshift.io/source-repo-url: https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage
+  name: logging-v6-3-e2e-test-trigger-pipeline
+  labels:
+    appstudio.openshift.io/application: logging-v6-0
+    appstudio.openshift.io/build-pipelinerun: loki-operator-bundle-v6-0-on-push-zsnpj
+    appstudio.openshift.io/component: loki-operator-bundle-v6-0
+    pac.test.appstudio.openshift.io/cancel-in-progress: "false"
+    pac.test.appstudio.openshift.io/event-type: push
+    pac.test.appstudio.openshift.io/original-prname: loki-operator-bundle-v6-0-on-push
+    pac.test.appstudio.openshift.io/repository: logging-loki-v6-2
+    pac.test.appstudio.openshift.io/sha: 4a1cf678754592e0593b8c6914032b6435fa7c5b
+    pac.test.appstudio.openshift.io/state: completed
+    pac.test.appstudio.openshift.io/url-org: openshift-logging
+    pac.test.appstudio.openshift.io/url-repository: konflux-log-storage
+    test.appstudio.openshift.io/pipelinerunfinishtime: "1756222683"
+    test.appstudio.openshift.io/type: component
+spec:
+  pipelineRef:
+    params:
+      - name: url
+        value: https://github.com/QiaolingTang/tekton-pipelines.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: pipelines/logging-v6-3-e2e-test-trigger.yaml
+    resolver: git
+  params:
+    - name: GANGWAY_API_URL
+      value: https://gangway-ci.apps.ci.l2s4.p1.openshiftapps.com
+    - name: PROW_JOB_NAME
+      value: periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-openshift-logging-6.3-aws-ipi-proxy-sts-f999-logging
+    - name: GANGWAY_TOKEN
+      value: gangway-token
+    - name: SNAPSHOT
+      value: '{"components":[{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v6-0@sha256:19686f3e1b36b0c59be4fb8500dcac0f815948a1d6c4c7a075060ee70e246d3b","name":"cluster-logging-operator-bundle-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.cluster-logging-operator-bundle","revision":"a7be238e71456aa34444d3e0eab7ac123e540cf2","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-collection"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/logging-loki-v6-0@sha256:deb9d4af51f19a1c90bcc0ba15a9a8ce275fb92941de640fc562929f3dbc4d22","name":"logging-loki-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.logging-loki","revision":"74b4eae2176c96737f13d4e0d72317b98c053355","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v6-0@sha256:57003582641e07244d56f7ab1891dbb8600b53090cd40c1d3b5e295912fcaeb1","name":"loki-operator-bundle-v6-0","source":{"git":{"revision":"4a1cf678754592e0593b8c6914032b6435fa7c5b","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-v6-0@sha256:a4255ec496b2271215a8046b130611f8bfb1999b291f5721f12b1a1cd4f6fac4","name":"loki-operator-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.loki-operator","revision":"74b4eae2176c96737f13d4e0d72317b98c053355","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/lokistack-gateway-v6-0@sha256:f63b9cf1b10ce5b6ef0f7e2f571e7f79a566c0368e38aa36f6c8086611bec90f","name":"lokistack-gateway-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.lokistack-gateway","revision":"74b4eae2176c96737f13d4e0d72317b98c053355","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/opa-openshift-v6-0@sha256:52f9a137c7ca053f31b1cebdb71ccc66de4b2a9e04fcd794a53397adf98cea2e","name":"opa-openshift-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.opa-openshift","revision":"74b4eae2176c96737f13d4e0d72317b98c053355","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-storage"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-v6-0@sha256:31c6213c6139d2c18f7e7fe3edfe5a1671fc2a6c152f928333bdf869d1d9cab2","name":"cluster-logging-operator-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.cluster-logging-operator","revision":"0ef832416c84dbcf236b386e1215e434f247bdad","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-collection"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/log-file-metric-exporter-v6-0@sha256:a0153dc778ca7f463e49ff29602a2969c1f00ffeb37c1c34e227ebe784e4df41","name":"log-file-metric-exporter-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.log-file-metric-exporter","revision":"2158f1ee08ae269e939e69282d10d0ea7b910c5a","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-collection"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/logging-eventrouter-v6-0@sha256:f1463247421b4a74acd6e8be50a5a0fd653c21cd74ccd7754c936611c37fe68c","name":"logging-eventrouter-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.logging-eventrouter","revision":"2158f1ee08ae269e939e69282d10d0ea7b910c5a","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-collection"}}},{"containerImage":"quay.io/redhat-user-workloads/obs-logging-tenant/logging-vector-v6-0@sha256:ea7344bf3af5864c094779c04608e70113271e5402a51d8426e1b4b9dabbb412","name":"logging-vector-v6-0","source":{"git":{"context":"./","dockerfileUrl":"Dockerfile.logging-vector","revision":"2158f1ee08ae269e939e69282d10d0ea7b910c5a","url":"https://gitlab.cee.redhat.com/openshift-logging/konflux-log-collection"}}}]}'

@@ -1,0 +1,292 @@
+kind: Pipeline
+apiVersion: tekton.dev/v1beta1
+metadata:
+  name: logging-e2e-test-fbc
+spec:
+  params:
+    - description: 'Snapshot of the application'
+      name: SNAPSHOT
+      default: '{"components": [{"name":"test-app", "containerImage": "quay.io/example/repo:latest"}]}'
+      type: string
+    - name: TEST_VERSION
+      description: Logging version need to be tested.
+      default: "6.3"
+      type: string
+    - name: PROW_JOB_NAME
+      description: The name of the prow job to be triggered
+      type: string
+      default: ""
+    - name: GANGWAY_API_URL
+      type: string
+      description: The API used to trigger prow jobs
+    - name: GANGWAY_TOKEN
+      type: string
+      default: gangway-token
+      description: Token to authenticate with gangway
+    - name: REGISTRY_AUTH_TOKEN
+      type: string
+      default: pull-secret
+      description: dockerconfigjson file to authenticate with registry.redhat.io
+  tasks:
+    - name: parse-metadata
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+    - name: get-unreleased-versions-from-fbc
+      description: Task to get all the unreleased logging versions from the FBC
+      runAfter:
+        - parse-metadata
+      when:
+        - input: $(tasks.parse-metadata.results.test-event-type)
+          operator: in
+          values: [ "push", "Push", "PUSH" ]
+      params:
+        - name: fbc-image
+          value: "$(tasks.parse-metadata.results.component-container-image)"
+      taskSpec:
+        results:
+          - name: unreleased_versions
+            type: array
+        volumes:
+          - name: workdir
+            emptyDir: {}
+        steps:
+        - name: get-unreleased-versions
+          image: quay.io/redhat-appstudio/konflux-test:v1.4.29@sha256:3619ffde751d337d02f1f61c83c5c39eb87d8091dbe5a9af58ea98577fa09461
+          volumeMounts:
+          - mountPath: /var/workdir
+            name: workdir
+          env:
+          - name: FBC_IMAGE
+            value: $(params.fbc-image)
+          - name: REGISTRY_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: $(params.REGISTRY_AUTH_TOKEN)
+                key: config.json
+          script: |
+            #!/usr/bin/env bash
+            set -euo pipefail
+            # shellcheck source=/dev/null
+            . /utils.sh
+
+            mkdir -p /var/workdir/.docker
+            echo $REGISTRY_AUTH_TOKEN > /var/workdir/.docker/config.json
+            export REGISTRY_AUTH_FILE=/var/workdir/.docker/config.json
+
+            digests_processed=()
+
+            image_mirror_map=""
+
+            mirror_set="/var/workdir/images-mirror-set.yaml"
+            export LOGGING_IDMS=https://gitlab.cee.redhat.com/openshift-logging/konflux-logging-fbc/-/raw/main/.tekton/integration-tests/resources/images-mirror-set.yaml
+            curl -Lo $mirror_set "$LOGGING_IDMS"
+            if [[ -f "${mirror_set}" ]]; then
+              mirror_set_yaml=$(cat "${mirror_set}")
+              image_mirror_map=$(process_image_digest_mirror_set "${mirror_set_yaml}")
+              echo "${image_mirror_map}" >"/tekton/home/related-images-map.txt"
+            else
+              echo "Could not find Image mirror set at ${mirror_set}. Unreleased bundles and relatedImages will fail the scan."
+            fi
+
+            image_without_tag=$(echo -n "${FBC_IMAGE}" | sed "s/\(.*\)@.*/\1/")
+            # strip new-line escape symbol from parameter and save it to variable
+
+            echo "Inspecting raw image manifest $FBC_IMAGE."
+            # Get the arch and image manifests by inspecting the image. This is mainly for identifying image indexes
+            image_manifests=$(get_image_manifests -i "${FBC_IMAGE}")
+            echo "Image manifests are $image_manifests"
+
+            while read -r _ arch_sha; do
+              digests_processed+=("\"$arch_sha\"")
+
+              if ! unreleased_bundles=$(get_unreleased_bundle -i "$image_without_tag@$arch_sha"); then
+                note="Task $(context.task.name) failed: Could not get unreleased bundle images from the fragment. Make sure you have ImagePullCredentials for registry.redhat.io"
+                echo "${note}"
+                exit 1
+              fi
+
+              if [ -z "${unreleased_bundles}" ]; then
+                echo "No unreleased bundles found. Skipping check."
+                exit 0
+              fi
+
+              echo "Unreleased bundles are: ${unreleased_bundles}"
+
+              unreleased_versions="[]"
+
+              for bundle in ${unreleased_bundles}; do
+                echo "Processing bundle image : ${bundle}"
+
+                image_accessible=0
+                if ! bundle_out=$(opm render "$bundle"); then
+                  echo "Could not inspect original pullspec $bundle. Checking if there's a mirror present"
+                  if [ -n "${image_mirror_map}" ]; then
+                    reg_and_repo=$(get_image_registry_and_repository "${bundle}")
+                    echo "Mirror Map is $image_mirror_map"
+                    mapfile -t mirrors < <(echo "${image_mirror_map}" | jq -r --arg image "${reg_and_repo}" '.[$image][]')
+                    echo "Mirrors for $reg_and_repo are:"
+                    printf "%s\n" "${mirrors[@]}"
+
+                    for mirror in "${mirrors[@]}"; do
+                      echo "Attempting to use mirror ${mirror}"
+                      replaced_image=$(replace_image_pullspec "$bundle" "$mirror")
+                      if ! bundle_out=$(opm render "$replaced_image"); then
+                        echo "Mirror $mirror is inaccessible."
+                        continue
+                      fi
+                      image_accessible=1
+                      echo "Replacing $bundle with $replaced_image"
+                      bundle="$replaced_image"
+                      break
+                    done
+                  fi
+                else
+                  image_accessible=1
+                  echo "Successfully inspected $bundle. Mirror not required."
+                fi
+
+                if [[ $image_accessible -eq 0 ]]; then
+                  note="Task $(context.task.name) failed: Could not render unreleased bundle image: ${bundle}. Make sure the image is accessible or a mirror is provided for the same in images-mirror-set.yaml"
+                  echo "${note}"
+                  exit 1
+                fi
+
+                # get unreleased logging package version, for example: 6.3
+                package_name=$(echo ${bundle_out} | jq -r '.name')
+                echo "find unreleased package: ${package_name}"
+                version=$(echo $package_name | sed -E 's/.*v([0-9]+\.[0-9]+)\..*/\1/')
+                unreleased_versions=$(echo "$unreleased_versions" | jq --arg i "$version" '. += [$i]')
+              done
+              echo "$unreleased_versions"  | jq 'unique' | tee "$(results.unreleased_versions.path)"
+
+            done < <(echo "$image_manifests" | jq -r 'to_entries[] | "\(.key) \(.value)"')
+          computeResources:
+            limits:
+              memory: 8Gi
+            requests:
+              cpu: "1"
+              memory: 8Gi
+          securityContext:
+            capabilities:
+              add:
+                - SETFCAP
+    - name: trigger-logging-prow-job
+      runAfter:
+        - get-unreleased-versions-from-fbc
+      params:
+        - name: PROW_JOB_NAME
+          value: $(params.PROW_JOB_NAME)
+        - name: GANGWAY_API_URL
+          value: $(params.GANGWAY_API_URL)
+        - name: FBC_IMAGE
+          value: "$(tasks.parse-metadata.results.component-container-image)"
+        - name: TEST_VERSION
+          value: "$(params.TEST_VERSION)"
+        - name: GANGWAY_TOKEN
+          value: "$(params.GANGWAY_TOKEN)"
+      when:
+        - input: "$(params.TEST_VERSION)"
+          operator: in
+          values: ["$(tasks.get-unreleased-versions-from-fbc.results.unreleased_versions[*])"]
+      taskSpec:
+        results:
+          - name: PROW_JOB_URL
+            description: The log link of the prow job
+        steps:
+          - name: trigger-prow-job
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            env:
+              - name: GANGWAY_API_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: $(params.GANGWAY_TOKEN)
+                    key: token
+            script: |
+              echo "Install dependencies"
+              dnf -y install jq --quiet > /dev/null
+
+              echo "Trigger the Prow job"
+
+              # Create the JSON payload dynamically with the configurable key
+              JSON_PAYLOAD=$(jq -n \
+                --arg key1 "MULTISTAGE_PARAM_OVERRIDE_LOGGING_INDEX_IMAGE" \
+                --arg value1 "$(params.FBC_IMAGE)" \
+                --arg key2 "MULTISTAGE_PARAM_OVERRIDE_LOGGING_TEST_VERSION" \
+                --arg value2 "$(params.TEST_VERSION)" \
+                '{
+                  "job_execution_type": "1",
+                  "pod_spec_options": {
+                    "envs": {
+                      ($key1): $value1,
+                      ($key2): $value2,
+                    }
+                  }
+                }')
+
+              # JSON_PAYLOAD='{"job_execution_type": "1"}'
+
+              #echo "JSON payload:"
+              #echo "${JSON_PAYLOAD}"
+
+              echo "$(params.PROW_JOB_NAME)"
+              echo "$(params.GANGWAY_API_URL)"
+
+              RESPONSE=$(curl -X POST -d "${JSON_PAYLOAD}" -H "Content-Type: application/json" -H "Authorization: Bearer ${GANGWAY_API_TOKEN}" "$(params.GANGWAY_API_URL)/v1/executions/$(params.PROW_JOB_NAME)")
+
+              echo "Job trigger response:"
+              echo "${RESPONSE}"
+
+              # Extract job ID from the response
+              JOB_ID=$(echo "${RESPONSE}" | jq -r '.id')
+              echo "Job ID: ${JOB_ID}"
+
+              if [ "${JOB_ID}" != "null" ] && [ -n "${JOB_ID}" ]; then
+                echo "Fetching job details for ID: ${JOB_ID}"
+
+                # Poll job details until job_url is available
+                MAX_ATTEMPTS=60  # Maximum number of attempts (5 minutes with 5-second intervals)
+                ATTEMPT=0
+                JOB_URL=""
+
+                while [ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]; do
+                  echo "Attempt $((ATTEMPT + 1))/${MAX_ATTEMPTS}: Fetching job details..."
+
+                  JOB_DETAILS=$(curl -s -X GET -H "Authorization: Bearer ${GANGWAY_API_TOKEN}" "$(params.GANGWAY_API_URL)/v1/executions/${JOB_ID}")
+                  echo "Job details response:"
+                  echo "${JOB_DETAILS}"
+
+                  # Extract job_url from the response
+                  JOB_URL=$(echo "${JOB_DETAILS}" | jq -r '.job_url')
+
+                  if [ "${JOB_URL}" != "null" ] && [ -n "${JOB_URL}" ] && [ "${JOB_URL}" != "" ]; then
+                    echo "Job URL found: ${JOB_URL}"
+                    break
+                  else
+                    echo "Job URL not yet available, waiting 5 seconds..."
+                    sleep 5
+                    ATTEMPT=$((ATTEMPT + 1))
+                  fi
+                done
+
+                if [ "${JOB_URL}" = "null" ] || [ -z "${JOB_URL}" ] || [ "${JOB_URL}" = "" ]; then
+                  echo "Job URL not available after ${MAX_ATTEMPTS} attempts"
+                  exit 1
+                else
+                  echo "Final job details with URL:"
+                  echo "${JOB_DETAILS}"
+                  echo "$JOB_URL" | tee "$(results.PROW_JOB_URL.path)"
+                fi
+              else
+                echo "Failed to extract job ID from response"
+                exit 1
+              fi

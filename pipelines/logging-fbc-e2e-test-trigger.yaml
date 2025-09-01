@@ -1,0 +1,90 @@
+kind: Pipeline
+apiVersion: tekton.dev/v1beta1
+metadata:
+  name: logging-fbc-e2e-test-trigger
+spec:
+  params:
+    - description: 'Snapshot of the application'
+      name: SNAPSHOT
+      default: '{"components": [{"name":"test-app", "containerImage": "quay.io/example/repo:latest"}]}'
+      type: string
+    - name: TEST_VERSION
+      description: Logging version need to be tested.
+      type: string
+    - name: PROW_JOB_NAME
+      description: The name of the prow job to be triggered
+      type: string
+      default: ""
+    - name: GANGWAY_API_URL
+      type: string
+      description: The API used to trigger prow jobs
+    - name: GANGWAY_TOKEN
+      type: string
+      default: gangway-token
+      description: Token to authenticate with gangway
+    - name: REGISTRY_AUTH_TOKEN
+      type: string
+      default: pull-secret
+      description: dockerconfigjson file to authenticate with registry.redhat.io
+  tasks:
+    - name: parse-metadata
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/konflux-ci/integration-examples
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/test_metadata.yaml
+      params:
+        - name: SNAPSHOT
+          value: $(params.SNAPSHOT)
+    - name: get-unreleased-versions-from-fbc
+      runAfter:
+        - parse-metadata
+      when:
+        - input: $(tasks.parse-metadata.results.test-event-type)
+          operator: in
+          values: [ "push", "Push", "PUSH" ]
+      params:
+        - name: fbc-image
+          value: "$(tasks.parse-metadata.results.component-container-image)"
+        - name: REGISTRY_AUTH_TOKEN
+          value: $(params.REGISTRY_AUTH_TOKEN)
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/QiaolingTang/tekton-pipelines
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/get-unreleased-versions-from-fbc.yaml
+    - name: trigger-logging-prow-job
+      runAfter:
+        - get-unreleased-versions-from-fbc
+      when:
+        - input: "$(params.TEST_VERSION)"
+          operator: in
+          values: ["$(tasks.get-unreleased-versions-from-fbc.results.unreleased_versions[*])"]
+      params:
+        - name: PROW_JOB_NAME
+          value: $(params.PROW_JOB_NAME)
+        - name: GANGWAY_API_URL
+          value: $(params.GANGWAY_API_URL)
+        - name: GANGWAY_TOKEN
+          value: "$(params.GANGWAY_TOKEN)"
+        - name: MULTISTAGE_PARAM_OVERRIDE_KEY
+          value: "MULTISTAGE_PARAM_OVERRIDE_LOGGING_INDEX_IMAGE"
+        - name: MULTISTAGE_PARAM_OVERRIDE_VALUE
+          value: "$(tasks.parse-metadata.results.component-container-image)"
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/QiaolingTang/tekton-pipelines
+          - name: revision
+            value: main
+          - name: pathInRepo
+            value: tasks/trigger-prow-job.yaml

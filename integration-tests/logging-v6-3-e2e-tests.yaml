@@ -1,0 +1,62 @@
+---
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+metadata:
+  annotations:
+    test.appstudio.openshift.io/optional: "true"
+  name: logging-v6-3-e2e-tests
+  namespace: obs-logging-tenant
+spec:
+  application: logging-v6-3
+  contexts:
+  - description: execute the integration test when component cluster-logging-operator-bundle-v6-3 updates
+      state
+    name: component_cluster-logging-operator-bundle-v6-3
+  params:
+    - name: GANGWAY_API_URL
+      value: https://gangway-ci.apps.ci.l2s4.p1.openshiftapps.com
+    - name: PROW_JOB_NAME
+      value: periodic-ci-openshift-openshift-tests-private-release-4.19-amd64-nightly-openshift-logging-6.3-aws-ipi-proxy-sts-f999-logging
+    - name: GANGWAY_TOKEN
+      value: gangway-token
+  resolverRef:
+    params:
+      - name: url
+        value: https://github.com/QiaolingTang/tekton-pipelines.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: pipelines/logging-e2e-test-trigger.yaml
+    resolver: git
+    resourceKind: pipeline
+---
+apiVersion: appstudio.redhat.com/v1beta2
+kind: IntegrationTestScenario
+metadata:
+  annotations:
+    test.appstudio.openshift.io/optional: "true"
+  name: logging-v6-3-e2e-tests
+  namespace: obs-logging-tenant
+spec:
+  application: logging-v6-3
+  contexts:
+  - description: execute the integration test when component loki-operator-bundle-v6-3 updates
+      state
+    name: component_loki-operator-bundle-v6-3
+  params:
+    - name: GANGWAY_API_URL
+      value: https://gangway-ci.apps.ci.l2s4.p1.openshiftapps.com
+    - name: PROW_JOB_NAME
+      value: periodic-ci-openshift-openshift-tests-private-release-4.20-multi-stable-openshift-logging-6.3-azure-mag-ipi-fips-f999-logging
+    - name: GANGWAY_TOKEN
+      value: gangway-token
+  resolverRef:
+    params:
+      - name: url
+        value: https://github.com/QiaolingTang/tekton-pipelines.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: pipelines/logging-e2e-test-trigger.yaml
+    resolver: git
+    resourceKind: pipeline

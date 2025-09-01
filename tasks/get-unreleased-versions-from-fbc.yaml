@@ -1,0 +1,139 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: get-unreleased-versions-from-fbc
+spec:
+  params:
+    - description: 'The FBC Image to be tested'
+      name: fbc-image
+      type: string
+    - name: REGISTRY_AUTH_TOKEN
+      type: string
+      description: 'The token used to authenticate registry.redhat.io'
+  results:
+    - name: unreleased_versions
+      type: array
+  volumes:
+    - name: workdir
+      emptyDir: {}
+  steps:
+    - name: get-unreleased-versions
+      image: quay.io/redhat-appstudio/konflux-test:v1.4.29@sha256:3619ffde751d337d02f1f61c83c5c39eb87d8091dbe5a9af58ea98577fa09461
+      volumeMounts:
+        - mountPath: /var/workdir
+          name: workdir
+      env:
+        - name: FBC_IMAGE
+          value: $(params.fbc-image)
+        - name: REGISTRY_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.REGISTRY_AUTH_TOKEN)
+              key: config.json
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . /utils.sh
+
+        mkdir -p /var/workdir/.docker
+        echo $REGISTRY_AUTH_TOKEN > /var/workdir/.docker/config.json
+        export REGISTRY_AUTH_FILE=/var/workdir/.docker/config.json
+
+        digests_processed=()
+
+        image_mirror_map=""
+
+        mirror_set="/var/workdir/images-mirror-set.yaml"
+        export LOGGING_IDMS=https://raw.githubusercontent.com/QiaolingTang/tekton-pipelines/refs/heads/main/resources/logging-bundle-idms.yaml
+        curl -Lo $mirror_set "$LOGGING_IDMS"
+        if [[ -f "${mirror_set}" ]]; then
+          mirror_set_yaml=$(cat "${mirror_set}")
+          image_mirror_map=$(process_image_digest_mirror_set "${mirror_set_yaml}")
+          echo "${image_mirror_map}" >"/tekton/home/related-images-map.txt"
+        else
+          echo "Could not find Image mirror set at ${mirror_set}. Unreleased bundles and relatedImages will fail the scan."
+        fi
+
+        image_without_tag=$(echo -n "${FBC_IMAGE}" | sed "s/\(.*\)@.*/\1/")
+        # strip new-line escape symbol from parameter and save it to variable
+
+        echo "Inspecting raw image manifest $FBC_IMAGE."
+        # Get the arch and image manifests by inspecting the image. This is mainly for identifying image indexes
+        image_manifests=$(get_image_manifests -i "${FBC_IMAGE}")
+        echo "Image manifests are $image_manifests"
+
+        while read -r _ arch_sha; do
+          digests_processed+=("\"$arch_sha\"")
+
+          if ! unreleased_bundles=$(get_unreleased_bundle -i "$image_without_tag@$arch_sha"); then
+            note="Task $(context.task.name) failed: Could not get unreleased bundle images from the fragment. Make sure you have ImagePullCredentials for registry.redhat.io"
+            echo "${note}"
+            exit 1
+          fi
+
+          if [ -z "${unreleased_bundles}" ]; then
+            echo "No unreleased bundles found. Skipping check."
+            exit 0
+          fi
+
+          echo "Unreleased bundles are: ${unreleased_bundles}"
+
+          unreleased_versions="[]"
+
+          for bundle in ${unreleased_bundles}; do
+            echo "Processing bundle image : ${bundle}"
+
+            image_accessible=0
+            if ! bundle_out=$(opm render "$bundle"); then
+              echo "Could not inspect original pullspec $bundle. Checking if there's a mirror present"
+              if [ -n "${image_mirror_map}" ]; then
+                reg_and_repo=$(get_image_registry_and_repository "${bundle}")
+                echo "Mirror Map is $image_mirror_map"
+                mapfile -t mirrors < <(echo "${image_mirror_map}" | jq -r --arg image "${reg_and_repo}" '.[$image][]')
+                echo "Mirrors for $reg_and_repo are:"
+                printf "%s\n" "${mirrors[@]}"
+
+                for mirror in "${mirrors[@]}"; do
+                  echo "Attempting to use mirror ${mirror}"
+                  replaced_image=$(replace_image_pullspec "$bundle" "$mirror")
+                  if ! bundle_out=$(opm render "$replaced_image"); then
+                    echo "Mirror $mirror is inaccessible."
+                    continue
+                  fi
+                  image_accessible=1
+                  echo "Replacing $bundle with $replaced_image"
+                  bundle="$replaced_image"
+                  break
+                done
+              fi
+            else
+              image_accessible=1
+              echo "Successfully inspected $bundle. Mirror not required."
+            fi
+
+            if [[ $image_accessible -eq 0 ]]; then
+              note="Task $(context.task.name) failed: Could not render unreleased bundle image: ${bundle}. Make sure the image is accessible or a mirror is provided for the same in images-mirror-set.yaml"
+              echo "${note}"
+              exit 1
+            fi
+
+            # get unreleased logging package version, for example: 6.3
+            package_name=$(echo ${bundle_out} | jq -r '.name')
+            echo "find unreleased package: ${package_name}"
+            version=$(echo $package_name | sed -E 's/.*v([0-9]+\.[0-9]+)\..*/\1/')
+            unreleased_versions=$(echo "$unreleased_versions" | jq --arg i "$version" '. += [$i]')
+          done
+          echo "$unreleased_versions"  | jq 'unique' | tee "$(results.unreleased_versions.path)"
+
+        done < <(echo "$image_manifests" | jq -r 'to_entries[] | "\(.key) \(.value)"')
+      computeResources:
+        limits:
+          memory: 8Gi
+        requests:
+          cpu: "1"
+          memory: 8Gi
+      securityContext:
+        capabilities:
+          add:
+            - SETFCAP

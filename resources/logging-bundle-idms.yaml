@@ -1,0 +1,18 @@
+apiVersion: config.openshift.io/v1
+kind: ImageDigestMirrorSet
+metadata:
+  name: logging-idms
+spec:
+  imageDigestMirrors:
+  - source: registry.redhat.io/openshift-logging/cluster-logging-operator-bundle
+    mirrors:
+    - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v6-3
+    - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v6-2
+    - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v6-1
+    - quay.io/redhat-user-workloads/obs-logging-tenant/cluster-logging-operator-bundle-v6-0
+  - source: registry.redhat.io/openshift-logging/loki-operator-bundle
+    mirrors:
+    - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v6-3
+    - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v6-2
+    - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v6-1
+    - quay.io/redhat-user-workloads/obs-logging-tenant/loki-operator-bundle-v6-0
