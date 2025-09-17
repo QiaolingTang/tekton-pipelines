@@ -1,7 +1,7 @@
 kind: Pipeline
 apiVersion: tekton.dev/v1beta1
 metadata:
-  name: logging-e2e-test
+  name: logging-v6-0-e2e-test-trigger
 spec:
   params:
     - description: 'Snapshot of the application'
@@ -39,9 +39,6 @@ spec:
         - input: $(tasks.parse-metadata.results.test-event-type)
           operator: in
           values: [ "push", "Push", "PUSH" ]
-        - input: $(tasks.parse-metadata.results.component-name)
-          operator: in
-          values: ["loki-operator-bundle-v6-0", "cluster-logging-operator-bundle-v6-0"]
       params:
         - name: PROW_JOB_NAME
           value: "$(params.PROW_JOB_NAME)"

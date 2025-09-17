@@ -26,7 +26,7 @@ spec:
       - name: revision
         value: main
       - name: pathInRepo
-        value: pipelines/logging-e2e-test-trigger.yaml
+        value: pipelines/logging-v6-3-e2e-test-trigger.yaml
     resolver: git
     resourceKind: pipeline
 ---
@@ -57,6 +57,6 @@ spec:
       - name: revision
         value: main
       - name: pathInRepo
-        value: pipelines/logging-e2e-test-trigger.yaml
+        value: pipelines/logging-v6-3-e2e-test-trigger.yaml
     resolver: git
     resourceKind: pipeline
